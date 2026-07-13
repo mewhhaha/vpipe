@@ -1,77 +1,94 @@
 # vpipe
 
-vpipe is a type-safe GPU programming library for Haskell: the stream-oriented
-programming model of GPipe, rebuilt around Vulkan 1.3, direct SPIR-V generation,
-and first-class compute. The repository's project plan records the architecture,
-milestones, and implementation decisions.
+**Type-safe, stream-oriented GPU programming for Haskell on Vulkan 1.3.**
 
-The project targets desktop Vulkan 1.3. Android, ray tracing, and mesh shaders
-are outside the 0.1 scope.
+vpipe brings GPipe's typed data-flow model to Vulkan with direct SPIR-V
+generation, first-class compute, and a runtime that owns descriptors, image
+layouts, synchronization, swapchains, and resource lifetimes.
 
 ![Triangle, textured cube, offscreen vignette, and compute particles rendered by vpipe](docs/assets/vpipe-demo.gif)
 
-Its four design pillars are:
-
-- Haskell types describe shader stages, formats, resource usages, and layouts.
+- Types describe shader stages, vertex layouts, interpolation, formats, and
+  legal resource usages.
 - Pipelines compile directly to deterministic SPIR-V without a GLSL toolchain.
-- Managed lifetimes, descriptors, layouts, and synchronization replace raw
-  Vulkan bookkeeping.
-- Graphics and compute share one resource model, including tracked
-  compute-to-graphics hand-offs.
+- Graphics and compute share typed buffers and synchronization state within an
+  ordered frame.
+- The core package has no window-system dependency; presentation lives in the
+  separate `vpipe-glfw` package.
 
-vpipe uses the `linear` package for `V2`, `V3`, `V4`, and matrix values. Those
-types already interoperate with the wider Haskell graphics ecosystem; vpipe
-adds Vulkan-format and buffer-layout classes instead of maintaining a second,
-incompatible math vocabulary.
+vpipe 0.1 targets desktop Vulkan 1.3 and supports GHC 9.12.4 and 9.14.1.
 
-## The triangle
+## Add it to an application
 
-A pipeline describes streams and targets once; the frame loop supplies the
-current swapchain image and records ordered passes:
+Headless applications need only `vpipe`. Add `vpipe-glfw` for managed windows,
+surfaces, and presentation:
 
-```haskell
-triangle :: PipelineM Environment ()
-triangle = do
-  input <- vertexInput (vertexSource "positions" positions)
-  fragments <- rasterize defaultRaster (fmap vertex input)
-  drawColor defaultBlend (colorTarget "color" target) (fmap unSmooth fragments)
-
-drawFrame swapchain prepared vertices =
-  frame swapchain $ \current ->
-    renderTo (frameColorTarget current) $
-      render prepared (Environment vertices (frameColorTarget current))
+```cabal
+build-depends:
+  vpipe >=0.1 && <0.2,
+  vpipe-glfw >=0.1 && <0.2
 ```
 
-The maintained example remains below roughly 60 lines while handling a real
-GLFW window, typed vertex data, compilation, resize, and presentation. Follow
-[Your first triangle](docs/tutorials/first-triangle.md) for the complete
-runnable program and an explanation of the pipeline, environment, and frame
-model.
+`Vpipe` is a documentation-only landing module. Applications import capability
+modules such as `Vpipe.Context`, `Vpipe.Pipeline`, `Vpipe.Expr`,
+`Vpipe.Compute`, and `Vpipe.Frame` directly. Shader math uses the standard
+`linear` vector and matrix types.
 
-The remaining tutorials cover
-[buffers, textures, and the type system](docs/tutorials/buffers-textures-and-types.md),
-[compute](docs/tutorials/compute.md), migration
-[from GPipe](docs/tutorials/coming-from-gpipe.md), and migration
-[from raw Vulkan](docs/tutorials/coming-from-raw-vulkan.md).
+## The programming model
 
-## Development environment
+```haskell
+pipeline :: PipelineM Environment ()
+pipeline = do
+  input <-
+    vertexInput
+      (vertexSource "positions" positions :: VertexSource Environment 'Triangles (V3 Float))
+  fragments <- rasterize defaultRaster (fmap vertex input)
+  drawColor
+    defaultBlend
+    (colorTarget "color" target :: ColorTarget Environment 'B8G8R8A8Srgb)
+    (fmap unSmooth fragments)
+ where
+  vertex position =
+    ( vec4 (x position) (y position) (z position) (constant 1)
+    , Smooth (constant (V4 1 0 0 1) :: V (V4 Float))
+    )
+```
 
-GHC 9.12.4 and 9.14.1 are the supported compiler series. Building needs a
-Vulkan loader and headers; the full Vulkan SDK is optional. Device tests need
-an installable Vulkan ICD, and Mesa's lavapipe software ICD is sufficient when
-no GPU is available.
+`PipelineM Environment ()` describes reusable GPU work. The environment
+supplies typed buffer and image bindings for one draw. vpipe compiles the
+description to SPIR-V, resolves its resources, derives the required barriers,
+and records the frame in program order.
 
-Choose device-test behavior with `VPIPE_TEST_DEVICE`:
+Read [Your first triangle](docs/tutorials/first-triangle.md), then continue
+with:
 
-- `lavapipe` requires a CPU Vulkan device and strict validation; absence is a
-  failure, as it is in Linux CI.
-- `any` runs device tests when a suitable Vulkan 1.3 device is available and
-  otherwise falls back to the pure suite.
-- `skip` never initializes Vulkan and runs only pure, property, compile-fail,
-  interface, and SPIR-V tests.
+- [Buffers, textures, and the type system](docs/tutorials/buffers-textures-and-types.md)
+- [Compute](docs/tutorials/compute.md)
+- [Coming from GPipe](docs/tutorials/coming-from-gpipe.md)
+- [Coming from raw Vulkan](docs/tutorials/coming-from-raw-vulkan.md)
 
-## Acknowledgements
+The repository also contains a runnable
+[five-part guide](https://github.com/mewhhaha/vpipe/tree/main/examples/guide)
+and an animated
+[shader gallery](https://github.com/mewhhaha/vpipe/tree/main/examples/shaders)
+with Mandelbrot, plasma, and interference-ring examples.
 
-vpipe is inspired by the MIT-licensed GPipe project and by the BSD-3-Clause
-typed SPIR-V work in `fir`. It borrows ideas, not source code; no code from
-either project is included.
+## Requirements and scope
+
+Building needs a Vulkan loader and headers plus a Vulkan 1.3 driver. The full
+Vulkan SDK is optional. Mesa lavapipe is sufficient for headless or CI use.
+Windowed applications additionally need GLFW through `vpipe-glfw`.
+
+The 0.1 API covers typed graphics and compute pipelines, vertex/index/uniform/
+storage buffers, color and depth targets, sampled images, push constants,
+integer atomics, ordered multipass frames, and compute-to-graphics hand-offs.
+
+It does not currently claim Android, ray tracing, mesh shaders, stencil,
+instanced or indirect drawing, indirect compute dispatch, storage images,
+subgroup operations, shared workgroup memory or barriers, or a frame graph.
+
+## License and acknowledgements
+
+vpipe is MIT licensed. It is inspired by the MIT-licensed GPipe project and by
+the BSD-3-Clause typed SPIR-V work in `fir`. It borrows ideas, not source code;
+no code from either project is included.

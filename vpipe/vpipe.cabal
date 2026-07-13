@@ -13,6 +13,9 @@ author: mewhhaha
 maintainer: kopatheonlyone@hotmail.com
 category: Graphics
 build-type: Simple
+tested-with:
+  GHC ==9.12.4
+  GHC ==9.14.1
 extra-doc-files:
   CHANGELOG.md
   README.md
@@ -238,3 +241,7 @@ test-suite vpipe-test
         Vpipe.SpirV.Generated
       )
   default-language: GHC2024
+
+source-repository head
+  type: git
+  location: https://github.com/mewhhaha/vpipe.git

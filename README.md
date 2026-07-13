@@ -1,111 +1,183 @@
 # vpipe
 
-vpipe is a type-safe GPU programming library for Haskell: the stream-oriented
-programming model of GPipe, rebuilt around Vulkan 1.3, direct SPIR-V generation,
-and first-class compute. The [project plan](tasks/00-summary.md) records the
-architecture, milestones, and implementation decisions.
+[![CI](https://github.com/mewhhaha/vpipe/actions/workflows/ci.yml/badge.svg)](https://github.com/mewhhaha/vpipe/actions/workflows/ci.yml)
 
-The project currently targets desktop Vulkan 1.3. Android, ray tracing, and mesh
-shaders are outside the 0.1 scope.
+**Type-safe, stream-oriented GPU programming for Haskell on Vulkan 1.3.**
 
-The [diagnostics review](docs/diagnostic-review.md) records the current
-beginner-error paths, their fixes, and the regression coverage that preserves
-them.
-
-The design records are concise statements of the deliberate boundaries:
-[descriptor environments](docs/decisions/0001-descriptor-environment-accessors.md),
-[expression reification](docs/decisions/0002-expression-stablename-reification.md),
-[deferred resource capabilities](docs/decisions/0003-resource-capability-deferrals.md),
-[format extensions](docs/decisions/0004-format-extension-scope.md),
-[descriptor and compute scope](docs/decisions/0005-descriptor-and-compute-scope.md), and
-[shader interface scope](docs/decisions/0006-shader-interface-scope.md), and
-[capability-module imports](docs/decisions/0007-capability-module-imports.md).
+vpipe keeps the compelling part of GPipe—the ability to describe graphics as
+typed Haskell data flow—while replacing the OpenGL runtime with direct SPIR-V
+generation, explicit compute, and managed Vulkan synchronization.
 
 ![Triangle, textured cube, offscreen vignette, and compute particles rendered by vpipe](docs/assets/vpipe-demo.gif)
 
-Its four design pillars are:
+- Shader stages, vertex layouts, interpolation, formats, and resource usages
+  are visible in types.
+- Pipelines compile directly to deterministic SPIR-V. No GLSL toolchain or
+  runtime shader compiler is required.
+- Contexts, descriptors, image layouts, queue hand-offs, swapchains, and
+  lifetimes are managed as one coherent runtime.
+- Graphics and compute share typed buffers and synchronization state, so a
+  compute dispatch can feed a later draw safely within an ordered frame.
 
-- Haskell types describe shader stages, formats, resource usages, and layouts.
-- Pipelines compile directly to deterministic SPIR-V without a GLSL toolchain.
-- Managed lifetimes, descriptors, layouts, and synchronization replace raw
-  Vulkan bookkeeping.
-- Graphics and compute share one resource model, including tracked
-  compute-to-graphics hand-offs.
+vpipe 0.1 is currently pre-release with an intentionally bounded desktop API.
+It targets Vulkan 1.3 and supports GHC 9.12.4 and 9.14.1.
 
-vpipe uses the `linear` package for `V2`, `V3`, `V4`, and matrix values. Those
-types already interoperate with the wider Haskell graphics ecosystem; vpipe
-adds Vulkan-format and buffer-layout classes instead of maintaining a second,
-incompatible math vocabulary.
+## See it run
 
-## The triangle
+Install the platform packages listed under [Requirements](#requirements), then
+build from a checkout:
 
-A pipeline describes streams and targets once; the frame loop supplies the
-current swapchain image and records ordered passes:
-
-```haskell
-triangle :: PipelineM Environment ()
-triangle = do
-  input <- vertexInput (vertexSource "positions" positions)
-  fragments <- rasterize defaultRaster (fmap vertex input)
-  drawColor defaultBlend (colorTarget "color" target) (fmap unSmooth fragments)
-
-drawFrame swapchain prepared vertices =
-  frame swapchain $ \current ->
-    renderTo (frameColorTarget current) $
-      render prepared (Environment vertices (frameColorTarget current))
+```console
+git clone https://github.com/mewhhaha/vpipe.git
+cd vpipe
+cabal update
+cabal build all
+VPIPE_TEST_DEVICE=any cabal run mandelbrot
 ```
 
-The maintained example remains below roughly 60 lines while handling a real
-GLFW window, typed vertex data, compilation, resize, and presentation.  Follow
-[Your first triangle](vpipe/docs/tutorials/first-triangle.md) for the complete
-runnable program and an explanation of the pipeline, environment, and frame
-model. Continue with the [five-part example guide](examples/guide/README.md)
-for buffers and indexing, shader expressions, textures, and multipass
-rendering, or explore the [animated shader gallery](examples/shaders/README.md).
+`VPIPE_TEST_DEVICE=any` avoids making the Khronos validation layer strict, but
+the example still needs an available Vulkan 1.3 device. The animated
+Mandelbrot also accepts arrow or A/D keys for panning and W/S for zooming.
 
-## Development environment
+The repository includes these maintained programs:
 
-GHC 9.12.4 and 9.14.1 are the supported compiler series. Building needs a Vulkan
-loader and headers; the full Vulkan SDK is optional. Tests that touch a device need an
-installable Vulkan ICD. Mesa's lavapipe software ICD is sufficient when no GPU
-is available. Install the Vulkan loader/headers, validation layers, SPIR-V
-tools, and software driver with the command for your distribution:
+| Example | What it demonstrates | Run it |
+| --- | --- | --- |
+| [Triangle](examples/app/triangle/Main.hs) | Minimal typed graphics pipeline and presentation | `cabal run triangle` |
+| [Mandelbrot](examples/src/Vpipe/Examples/Mandelbrot.hs) | Shader loops, real-time uniforms, and keyboard input | `cabal run mandelbrot` |
+| [Plasma](examples/src/Vpipe/Examples/Plasma.hs) and [rings](examples/src/Vpipe/Examples/Rings.hs) | Time-driven full-screen fragment shaders | `cabal run plasma` / `cabal run rings` |
+| [Cube](examples/src/Vpipe/Examples/Cube.hs) | Indexed textured geometry with depth | `cabal run cube` |
+| [Particles](examples/src/Vpipe/Examples/Particles.hs) | 100,000-particle compute-to-graphics hand-off | `cabal run particles` |
+| [Offscreen](examples/src/Vpipe/Examples/Offscreen.hs) | Two-pass rendering and image-layout transitions | `cabal run offscreen` |
+| [Headless](examples/app/headless/Main.hs) | Render and save a PNG without a window | `cabal run headless -- --screenshot /tmp/vpipe.png` |
+
+Browse the [animated shader gallery](examples/shaders/README.md), or work
+through the [five-part example guide](examples/guide/README.md).
+
+## The programming model
+
+A pipeline describes streams and targets once. This is the complete pipeline
+from the maintained [triangle source](examples/app/triangle/Main.hs):
+
+```haskell
+pipeline :: PipelineM Environment ()
+pipeline = do
+  input <-
+    vertexInput
+      (vertexSource "positions" positions :: VertexSource Environment 'Triangles (V3 Float))
+  fragments <- rasterize defaultRaster (fmap vertex input)
+  drawColor
+    defaultBlend
+    (colorTarget "color" target :: ColorTarget Environment 'B8G8R8A8Srgb)
+    (fmap unSmooth fragments)
+ where
+  vertex position =
+    ( vec4 (x position) (y position) (z position) (constant 1)
+    , Smooth (constant (V4 1 0 0 1) :: V (V4 Float))
+    )
+```
+
+The `Environment` is the boundary between that reusable description and the
+resources for one draw. Its buffer and image binding types let vpipe reject
+incompatible usages or formats before Vulkan records a command. The complete
+example also shows pipeline preparation, swapchain creation, ordered frame
+recording, and presentation.
+
+Start with [Your first triangle](vpipe/docs/tutorials/first-triangle.md), then
+continue with:
+
+- [Buffers, textures, and the type system](vpipe/docs/tutorials/buffers-textures-and-types.md)
+- [Compute](vpipe/docs/tutorials/compute.md)
+- [Coming from GPipe](vpipe/docs/tutorials/coming-from-gpipe.md)
+- [Coming from raw Vulkan](vpipe/docs/tutorials/coming-from-raw-vulkan.md)
+
+## Using the packages
+
+Headless and core graphics applications depend only on `vpipe`. Add
+`vpipe-glfw` when you need managed GLFW windows and Vulkan presentation
+surfaces:
+
+```cabal
+build-depends:
+  vpipe >=0.1 && <0.2,
+  vpipe-glfw >=0.1 && <0.2
+```
+
+`Vpipe` is a documentation-only landing module. Applications import capability
+modules such as `Vpipe.Context`, `Vpipe.Pipeline`, `Vpipe.Expr`,
+`Vpipe.Compute`, and `Vpipe.Frame` directly. Vector and matrix values come from
+`linear`, so shader-facing math types also interoperate with the wider Haskell
+ecosystem.
+
+## Requirements
+
+Building needs GHC 9.12.4 or 9.14.1, Cabal, a Vulkan loader and headers, and a
+Vulkan 1.3 driver. Windowed programs additionally need GLFW. The full Vulkan
+SDK is optional.
 
 ```console
 # Debian / Ubuntu
-sudo apt install libvulkan-dev mesa-vulkan-drivers spirv-tools vulkan-validationlayers
+sudo apt install libglfw3-dev libvulkan-dev mesa-vulkan-drivers \
+  spirv-tools vulkan-validationlayers
 
 # Fedora
-sudo dnf install mesa-vulkan-drivers spirv-tools vulkan-loader-devel vulkan-validation-layers
+sudo dnf install glfw-devel mesa-vulkan-drivers spirv-tools \
+  vulkan-loader-devel vulkan-validation-layers
 
 # Arch Linux
-sudo pacman -S spirv-tools vulkan-headers vulkan-icd-loader vulkan-swrast vulkan-validation-layers
+sudo pacman -S glfw spirv-tools vulkan-headers vulkan-icd-loader \
+  vulkan-swrast vulkan-validation-layers
 ```
 
-Choose device-test behavior with `VPIPE_TEST_DEVICE`:
+Mesa lavapipe is sufficient when no physical GPU is available. Validation
+behavior is selected with `VPIPE_TEST_DEVICE`:
 
-- `lavapipe` requires a CPU Vulkan device and strict validation; absence is a
-  failure, as it is in Linux CI.
-- `any` runs device tests when a suitable Vulkan 1.3 device is available and
-  otherwise falls back to the pure suite.
-- `skip` never initializes Vulkan and runs only pure/property, compile-fail,
-  interface, and SPIR-V tests.
+- `any` runs device tests when a suitable device exists without making
+  validation-layer availability strict; examples still require a device.
+- `lavapipe` requires a CPU Vulkan device plus validation and synchronization
+  validation; this is the Linux CI configuration.
+- `skip` runs the pure, property, compile-fail, interface, and SPIR-V tests
+  without initializing Vulkan; it does not make GPU examples device-free.
 
-Run the local checks with:
+## Current 0.1 scope
+
+The release covers typed graphics and compute pipelines, vertex/index/uniform/
+storage buffers, color and depth targets, sampled images, push constants,
+integer atomics, ordered multipass frames, headless operation, and optional
+GLFW presentation.
+
+It does not currently claim Android, ray tracing, mesh shaders, stencil,
+instanced or indirect drawing, indirect compute dispatch, storage images,
+subgroup operations, shared workgroup memory or barriers, or a frame graph.
+These boundaries are explicit so applications do not have to discover them
+halfway through a design.
+
+## Development and release confidence
 
 ```console
 cabal build all
-cabal test all
 VPIPE_TEST_DEVICE=skip cabal test all
 fourmolu --mode check .
 hlint vpipe/src vpipe/public-src vpipe/test vpipe-glfw/src examples
 ```
 
-The Vulkan instance smoke test enables `VK_LAYER_KHRONOS_validation` when the
-layer is installed and skips only when no Vulkan ICD is available.
+Linux CI runs the full suite and maintained examples on pinned Mesa lavapipe
+with validation and synchronization validation enabled. Windows builds and
+runs software-Vulkan tests when lavapipe is available; macOS is currently
+build-only. Physical Wayland and Windows runs remain release gates. The
+[release checklist](docs/release-checklist.md) and
+[candidate verifier](scripts/release/verify-candidate.sh) define the evidence
+required before publishing the jointly versioned `vpipe` and `vpipe-glfw`
+packages.
 
-## Acknowledgements
+Architecture rationale lives in the [design records](docs/decisions/), while
+the [project plan](tasks/00-summary.md) retains implementation history for
+contributors.
 
-vpipe is inspired by the MIT-licensed GPipe project and by the BSD-3-Clause
-typed SPIR-V work in `fir`. It borrows ideas, not source code; no code from
-either project is included.
+## License and acknowledgements
+
+vpipe is [MIT licensed](LICENSE). It is inspired by the MIT-licensed GPipe
+project and by the BSD-3-Clause typed SPIR-V work in `fir`. It borrows ideas,
+not source code; no code from either project is included. See the
+[changelog](CHANGELOG.md) or report a problem in the
+[issue tracker](https://github.com/mewhhaha/vpipe/issues).

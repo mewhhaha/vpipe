@@ -130,6 +130,7 @@ require_dependency_bounds examples/vpipe-examples.cabal vpipe-glfw "$train" "$ne
 
 log_run cabal-check-vpipe bash -c 'cd vpipe && cabal check'
 log_run cabal-check-vpipe-glfw bash -c 'cd vpipe-glfw && cabal check'
+log_run cabal-check-examples bash -c 'cd examples && cabal check'
 
 export VPIPE_TEST_DEVICE=${VPIPE_TEST_DEVICE:-lavapipe}
 export VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.x86_64.json}

@@ -1,4 +1,5 @@
 dist-newstyle/
+artifacts/
 cabal.project.local
 *.swp
 *~
