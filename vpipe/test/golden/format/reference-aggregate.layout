@@ -1,0 +1,15 @@
+Reference aggregate field layout
+source=test/golden/format/reference-aggregate.comp
+compiler=glslangValidator 16.3.0
+command=glslangValidator -V --target-env vulkan1.3 -S comp reference-aggregate.comp
+SPIR-V evidence: std140 offsets=[0,16,48,96], matrix stride=16; std430 offsets=[0,16,48,72], matrix stride=8
+struct<float32, array[2]<vec3<float32>>, mat3x2<float32>, struct<uint32, vec2<float32>>>
+
+Vertex
+alignment=4, occupied=64, size=64, array stride=none, matrix stride=none, field offsets=[0, 4, 28, 52]
+
+Std140
+alignment=16, occupied=112, size=112, array stride=none, matrix stride=none, field offsets=[0, 16, 48, 96]
+
+Std430
+alignment=16, occupied=96, size=96, array stride=none, matrix stride=none, field offsets=[0, 16, 48, 72]

@@ -1,0 +1,12 @@
+packages:
+  vpipe
+  vpipe-glfw
+  examples
+
+tests: True
+
+package vpipe
+  documentation: True
+
+package vpipe-glfw
+  documentation: True

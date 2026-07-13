@@ -1,0 +1,285 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux / GHC ${{ matrix.ghc }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: [9.14.1, 9.12.4]
+    env:
+      VPIPE_TEST_DEVICE: lavapipe
+      # lavapipe is Mesa's software Vulkan implementation.  The validation
+      # layer enables synchronization validation when the installed layer
+      # advertises VK_EXT_validation_features.
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      VPIPE_DUMP: ${{ github.workspace }}/artifacts/vpipe-dump
+      VPIPE_VALIDATION_LOG: ${{ github.workspace }}/artifacts/validation.log
+      XDG_CACHE_HOME: ${{ runner.temp }}/vpipe-cache
+      MESA_SNAPSHOT: 20260701T120000Z
+      MESA_VULKAN_VERSION: 25.2.8-0ubuntu0.24.04.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan and SPIR-V tools
+        run: |
+          sudo apt update --snapshot "$MESA_SNAPSHOT"
+          sudo apt install --yes --allow-downgrades --snapshot "$MESA_SNAPSHOT" \
+            libglfw3-dev libvulkan-dev "mesa-vulkan-drivers=$MESA_VULKAN_VERSION" spirv-tools \
+            vulkan-tools vulkan-validationlayers xvfb
+          test "$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers)" = "$MESA_VULKAN_VERSION"
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: latest
+      - name: Update package index
+        run: cabal update
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-${{ matrix.ghc }}-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: ${{ runner.os }}-ghc-${{ matrix.ghc }}-
+      - name: Build
+        run: cabal build all
+      - name: Haddock (warnings are errors)
+        if: ${{ matrix.ghc == '9.14.1' }}
+        run: scripts/docs/check-haddock.sh
+      - name: Check documented Haskell snippets
+        if: ${{ matrix.ghc == '9.14.1' }}
+        run: scripts/docs/check-snippets.sh
+      - name: Check documentation links
+        if: ${{ matrix.ghc == '9.14.1' }}
+        run: python3 scripts/docs/check-links.py
+      - name: Test (lavapipe, validation and sync validation)
+        run: |
+          set -o pipefail
+          mkdir -p "$VPIPE_DUMP" "$XDG_CACHE_HOME"
+          xvfb-run --auto-servernum cabal test all --test-show-details=direct 2>&1 | tee "$VPIPE_VALIDATION_LOG"
+      - name: Render example goldens (lavapipe)
+        run: |
+          set -o pipefail
+          scripts/examples/check-screenshots.sh 2>&1 | tee -a "$VPIPE_VALIDATION_LOG"
+      - name: Run windowed examples (lavapipe, validation and sync validation)
+        run: |
+          set -o pipefail
+          scripts/examples/check-windowed-validation.sh 2>&1 | tee -a "$VPIPE_VALIDATION_LOG"
+      - name: Report triangle entry-point line count
+        run: |
+          lines=$(awk 'NF && $1 !~ /^--/ { count++ } END { print count + 0 }' examples/app/triangle/Main.hs)
+          echo "Triangle entry point: $lines nonblank source lines" | tee artifacts/triangle-line-count.txt
+          test "$lines" -le 60
+      - name: Check formatting
+        run: |
+          cabal install fourmolu-0.20.0.0 --overwrite-policy=always
+          fourmolu --mode check .
+      - name: Lint
+        run: |
+          cabal install hlint-3.10 --overwrite-policy=always
+          hlint vpipe/src vpipe/public-src vpipe/test vpipe-glfw/src examples
+      - name: Upload diagnostics on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.ghc }}-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows / software Vulkan when available
+    runs-on: windows-2022
+    env:
+      VPIPE_TEST_DEVICE: skip
+      VPIPE_DUMP: ${{ github.workspace }}/artifacts/vpipe-dump
+      VPIPE_VALIDATION_LOG: ${{ github.workspace }}/artifacts/validation.log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan SDK 1.4.350.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'vulkan_sdk.exe'
+          $sdkRoot = Join-Path $env:RUNNER_TEMP 'VulkanSDK-1.4.350.0'
+          $expectedHash = '855B27BA05D2D8119C5114C5D4FF870CA38F2C632B11E1BB9923B9B7E6ECFE7B'
+
+          Invoke-WebRequest `
+            -Uri 'https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkan_sdk.exe' `
+            -OutFile $installer
+          $actualHash = (Get-FileHash -Algorithm SHA256 $installer).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw "Vulkan SDK checksum mismatch: expected $expectedHash, got $actualHash"
+          }
+
+          & $installer --root $sdkRoot --accept-licenses --default-answer --confirm-command install
+          if ($LASTEXITCODE -ne 0) {
+            throw "Vulkan SDK installer exited with code $LASTEXITCODE"
+          }
+
+          "VULKAN_SDK=$sdkRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $sdkRoot 'Bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          $sdkRootCabal = $sdkRoot.Replace('\', '/')
+          @"
+
+          package VulkanMemoryAllocator
+            extra-include-dirs: $sdkRootCabal/Include
+
+          package vulkan-utils
+            extra-include-dirs: $sdkRootCabal/Include
+
+          package vpipe
+            extra-include-dirs: $sdkRootCabal/Include
+
+          package vulkan
+            extra-lib-dirs: $sdkRootCabal/Lib
+          "@ | Add-Content -Path cabal.project.local
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: 9.14.1
+          cabal-version: latest
+      - name: Update package index
+        run: cabal update
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.14.1-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: ${{ runner.os }}-ghc-9.14.1-
+      - name: Build
+        run: cabal build all
+      # LunarG's SDK supplies the loader and tools, but not a software ICD.
+      # MSYS2 publishes Mesa's Windows lavapipe package, including its ICD JSON.
+      - name: Set up MSYS2 for lavapipe
+        id: msys2
+        continue-on-error: true
+        uses: msys2/setup-msys2@v2.32.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-mesa
+            mingw-w64-ucrt-x86_64-vulkan-tools
+      - name: Install pinned Mesa lavapipe
+        id: install-lavapipe
+        if: ${{ steps.msys2.outcome == 'success' }}
+        continue-on-error: true
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          package_name='mingw-w64-ucrt-x86_64-mesa-26.1.4-1-any.pkg.tar.zst'
+          package_path="$(cygpath "$RUNNER_TEMP")/$package_name"
+          curl --fail --location --retry 3 \
+            --output "$package_path" \
+            'https://mirror.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-mesa-26.1.4-1-any.pkg.tar.zst'
+          printf '%s  %s\n' \
+            '158bd02c71d1e57f5ff884a2c061ec9ea33483083be2baa6eee5a2cc3a104e7c' \
+            "$package_path" | sha256sum --check --strict
+          pacman --noconfirm -U "$package_path"
+      - name: Configure pinned lavapipe
+        id: configure-lavapipe
+        if: ${{ steps.install-lavapipe.outcome == 'success' }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ucrt64 = Join-Path $env:MSYS2_LOCATION 'ucrt64'
+          $icd = Join-Path $ucrt64 'share/vulkan/icd.d/lvp_icd.x86_64.json'
+          $driver = Join-Path $ucrt64 'bin/vulkan_lvp.dll'
+          $vulkanInfo = Join-Path $ucrt64 'bin/vulkaninfo.exe'
+          foreach ($path in @($icd, $driver, $vulkanInfo)) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Pinned lavapipe installation is missing $path"
+            }
+          }
+
+          $ucrt64Bin = Join-Path $ucrt64 'bin'
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VPIPE_WINDOWS_LAVAPIPE_READY=true`n")
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VPIPE_WINDOWS_LAVAPIPE_BIN=$ucrt64Bin`n")
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "VK_ICD_FILENAMES=$icd`n")
+          [System.IO.File]::AppendAllText($env:GITHUB_PATH, $ucrt64Bin + "`n")
+      - name: Test with lavapipe when available
+        shell: pwsh
+        env:
+          MSYS2_SETUP_OUTCOME: ${{ steps.msys2.outcome }}
+          LAVAPIPE_INSTALL_OUTCOME: ${{ steps.install-lavapipe.outcome }}
+          LAVAPIPE_CONFIGURATION_OUTCOME: ${{ steps.configure-lavapipe.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path $env:VPIPE_DUMP | Out-Null
+          $testBins = @(
+            cabal list-bin vpipe:vpipe-test
+            cabal list-bin vpipe-glfw:vpipe-glfw-test
+            cabal list-bin vpipe-glfw:public-import-test
+          )
+          & scripts/ci/run-windows-tests.ps1 `
+            -TestBinaries $testBins `
+            -ArtifactDirectory (Split-Path $env:VPIPE_VALIDATION_LOG)
+      - name: Upload Windows diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS / build
+    # TODO: Migrate from macos-14 before GitHub deprecates this runner image.
+    runs-on: macos-14
+    env:
+      VPIPE_DUMP: ${{ github.workspace }}/artifacts/vpipe-dump
+      VPIPE_VALIDATION_LOG: ${{ github.workspace }}/artifacts/validation.log
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan build dependencies
+        run: |
+          brew install glfw vulkan-headers vulkan-loader
+          brew_prefix="$(brew --prefix)"
+          {
+            echo
+            echo "package VulkanMemoryAllocator"
+            echo "  extra-include-dirs: $brew_prefix/include"
+            echo
+            echo "package vulkan-utils"
+            echo "  extra-include-dirs: $brew_prefix/include"
+            echo
+            echo "package vpipe"
+            echo "  extra-include-dirs: $brew_prefix/include"
+            echo
+            echo "package vulkan"
+            echo "  extra-lib-dirs: $brew_prefix/lib"
+          } >> cabal.project.local
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: 9.14.1
+          cabal-version: latest
+      - name: Update package index
+        run: cabal update
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.14.1-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: ${{ runner.os }}-ghc-9.14.1-
+      - name: Build
+        run: cabal build all
+      - name: Upload diagnostics on failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore

@@ -1,0 +1,102 @@
+name: Hackage release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_candidate:
+        description: Upload the verified archives as Hackage candidates (never publishes)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify vpipe 0.1 release train
+    runs-on: ubuntu-24.04
+    env:
+      VPIPE_TEST_DEVICE: lavapipe
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/release-candidate
+      VPIPE_DUMP: ${{ github.workspace }}/artifacts/release-candidate/vpipe-dump
+      VPIPE_VALIDATION_LOG: ${{ github.workspace }}/artifacts/release-candidate/validation.log
+      XDG_CACHE_HOME: ${{ runner.temp }}/vpipe-cache
+      MESA_SNAPSHOT: 20260701T120000Z
+      MESA_VULKAN_VERSION: 25.2.8-0ubuntu0.24.04.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vulkan and SPIR-V tools
+        run: |
+          sudo apt update --snapshot "$MESA_SNAPSHOT"
+          sudo apt install --yes --allow-downgrades --snapshot "$MESA_SNAPSHOT" \
+            libglfw3-dev libvulkan-dev "mesa-vulkan-drivers=$MESA_VULKAN_VERSION" spirv-tools \
+            vulkan-tools vulkan-validationlayers xvfb
+          test "$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers)" = "$MESA_VULKAN_VERSION"
+
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: 9.14.1
+          cabal-version: latest
+
+      - name: Update package index
+        run: cabal update
+
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+          key: ${{ runner.os }}-release-candidate-ghc-9.14.1-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: ${{ runner.os }}-release-candidate-ghc-9.14.1-
+
+      - name: Verify candidate, docs, and isolated sdists
+        run: scripts/release/verify-candidate.sh
+
+      - name: Upload candidate sdists, docs, and logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hackage-release-candidate-${{ github.sha }}
+          path: |
+            artifacts/release-candidate/sdist/
+            artifacts/release-candidate/docs/
+            artifacts/release-candidate/logs/
+            artifacts/release-candidate/validation.log
+            artifacts/release-candidate/vpipe-dump/
+            dist-newstyle/build/*/*/*/doc/
+          if-no-files-found: warn
+
+  upload-candidate:
+    name: Upload protected Hackage candidates
+    if: ${{ inputs.upload_candidate }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: hackage-candidate
+    permissions:
+      contents: read
+    steps:
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: 9.14.1
+          cabal-version: latest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hackage-release-candidate-${{ github.sha }}
+          path: candidate
+
+      - name: Upload source and documentation as candidates
+        env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HACKAGE_TOKEN"
+          mapfile -t sources < <(find candidate -type f -path '*/sdist/*.tar.gz' | sort)
+          mapfile -t docs < <(find candidate -type f -path '*/docs/*-docs.tar.gz' | sort)
+          test "${#sources[@]}" -eq 2
+          test "${#docs[@]}" -eq 2
+          cabal upload --token="$HACKAGE_TOKEN" "${sources[@]}"
+          cabal upload --documentation --token="$HACKAGE_TOKEN" "${docs[@]}"

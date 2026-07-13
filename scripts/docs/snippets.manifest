@@ -1,0 +1,33 @@
+# public module<TAB>kind<TAB>source<TAB>selector
+#
+# Every public module has exactly one registered Haddock header example. The
+# checker compares this list with the public Cabal surfaces before extracting
+# and typechecking the actual documentation. It deliberately fails until a
+# header block is self-contained; temporary fixtures are not evidence.
+Vpipe	haddock-header	vpipe/public-src/Vpipe.hs	1
+Vpipe.Buffer	haddock-header	vpipe/src/Vpipe/Buffer.hs	1
+Vpipe.Buffer.Dynamic	haddock-header	vpipe/src/Vpipe/Buffer/Dynamic.hs	1
+Vpipe.Buffer.Format	haddock-header	vpipe/src/Vpipe/Buffer/Format.hs	1
+Vpipe.Context	haddock-header	vpipe/src/Vpipe/Context.hs	1
+Vpipe.Context.Device	haddock-header	vpipe/src/Vpipe/Context/Device.hs	1
+Vpipe.Context.Queue	haddock-header	vpipe/src/Vpipe/Context/Queue.hs	1
+Vpipe.Compute	haddock-header	vpipe/public-src/Vpipe/Compute.hs	1
+Vpipe.Error	haddock-header	vpipe/src/Vpipe/Error.hs	1
+Vpipe.Expr	haddock-header	vpipe/src/Vpipe/Expr.hs	1
+Vpipe.Format	haddock-header	vpipe/src/Vpipe/Format.hs	1
+Vpipe.Frame	haddock-header	vpipe/src/Vpipe/Frame.hs	1
+Vpipe.Graphics	haddock-header	vpipe/src/Vpipe/Graphics.hs	1
+Vpipe.Image	haddock-header	vpipe/src/Vpipe/Image.hs	1
+Vpipe.Image.Types	haddock-header	vpipe/src/Vpipe/Image/Types.hs	1
+Vpipe.Pipeline	haddock-header	vpipe/public-src/Vpipe/Pipeline.hs	1
+Vpipe.Sampler	haddock-header	vpipe/src/Vpipe/Sampler.hs	1
+Vpipe.Surface	haddock-header	vpipe/src/Vpipe/Surface.hs	1
+Vpipe.Surface.Driver	haddock-header	vpipe/src/Vpipe/Surface/Driver.hs	1
+Vpipe.Swapchain	haddock-header	vpipe/src/Vpipe/Swapchain.hs	1
+Vpipe.SpirV	haddock-header	vpipe/src/Vpipe/SpirV.hs	1
+Vpipe.SpirV.Assembler	haddock-header	vpipe/src/Vpipe/SpirV/Assembler.hs	1
+Vpipe.GLFW	haddock-header	vpipe-glfw/src/Vpipe/GLFW.hs	1
+tutorial:first-triangle	markdown-haskell	vpipe/docs/tutorials/first-triangle.md	1
+tutorial:compute	markdown-haskell	vpipe/docs/tutorials/compute.md	1
+tutorial:buffers	markdown-haskell	vpipe/docs/tutorials/buffers-textures-and-types.md	1
+example:triangle	source	examples/app/triangle/Main.hs	-

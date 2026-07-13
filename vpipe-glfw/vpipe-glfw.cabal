@@ -1,0 +1,63 @@
+cabal-version: 3.12
+name: vpipe-glfw
+version: 0.1.0.0
+synopsis: GLFW windows and Vulkan surfaces for vpipe
+description:
+  A small GLFW integration package kept separate so headless vpipe programs do
+  not link a window-system dependency.
+homepage: https://github.com/mewhhaha/vpipe
+bug-reports: https://github.com/mewhhaha/vpipe/issues
+license: MIT
+license-file: LICENSE
+author: mewhhaha
+maintainer: kopatheonlyone@hotmail.com
+category: Graphics
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wunused-packages
+
+  -- GHC 9.12 requires `pattern` in import and export lists; GHC 9.14 warns
+  -- about that spelling after introducing the replacement `data` namespace.
+  if impl(ghc >= 9.14)
+    ghc-options: -Wno-pattern-namespace-specifier
+
+library
+  import: warnings
+  exposed-modules: Vpipe.GLFW
+  hs-source-dirs: src
+  build-depends:
+    base >=4.21 && <4.23,
+    bytestring >=0.11 && <0.13,
+    GLFW-b >=3.3.9.1 && <3.4,
+    vulkan >=3.26.6 && <3.27,
+    vpipe >=0.1 && <0.2
+  default-language: GHC2024
+
+test-suite vpipe-glfw-test
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  ghc-options: -threaded
+  build-depends:
+    base >=4.21 && <4.23,
+    linear >=1.23.3 && <1.24,
+    vpipe >=0.1 && <0.2,
+    vpipe-glfw
+  default-language: GHC2024
+
+test-suite public-import-test
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: PublicImports.hs
+  hs-source-dirs: test
+  build-depends:
+    base >=4.21 && <4.23,
+    vpipe >=0.1 && <0.2,
+    vpipe-glfw
+  default-language: GHC2024

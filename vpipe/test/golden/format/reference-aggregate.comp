@@ -1,0 +1,28 @@
+#version 460
+
+struct Tail {
+    uint code;
+    vec2 uv;
+};
+
+layout(std140, set = 0, binding = 0) uniform Std140Block {
+    float scalarValue;
+    vec3 vectorValues[2];
+    mat3x2 matrixValue;
+    Tail tailValue;
+} std140Block;
+
+layout(std430, set = 0, binding = 1) readonly buffer Std430Block {
+    float scalarValue;
+    vec3 vectorValues[2];
+    mat3x2 matrixValue;
+    Tail tailValue;
+} std430Block;
+
+layout(local_size_x = 1) in;
+
+void main() {
+    if (std140Block.scalarValue == std430Block.scalarValue) {
+        return;
+    }
+}

@@ -1,0 +1,30 @@
+Pipeline interface
+
+Vertex bindings
+source	stride
+mesh	28
+
+Vertex attributes
+source	attribute	location	format	shader type	offset
+mesh	mesh.0	0	R32G32B32_SFLOAT	vec3	0
+mesh	mesh.1	1	R32G32B32A32_SFLOAT	vec4	12
+
+Resources
+name	set	binding	kind
+mvp	0	0	uniform mat4x4 mat4x4<float32>
+exposure	0	1	uniform float float32
+albedo	0	2	texture 2d
+instances	0	3	storage
+
+Color attachments
+name	location	format
+swapchain	0	R8G8B8A8_SRGB
+
+Depth attachments
+name	format
+depth	D32_SFLOAT
+
+Push constants
+name	offset	size	shader type	layout
+push.0	0	4	float	float32
+push.1	16	16	vec4	vec4<float32>

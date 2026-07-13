@@ -1,0 +1,69 @@
+name: Nightly property tests
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quickcheck:
+    name: QuickCheck / lavapipe
+    runs-on: ubuntu-24.04
+    env:
+      VPIPE_TEST_DEVICE: lavapipe
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+      VPIPE_DUMP: ${{ github.workspace }}/artifacts/vpipe-dump
+      VPIPE_VALIDATION_LOG: ${{ github.workspace }}/artifacts/validation.log
+      XDG_CACHE_HOME: ${{ runner.temp }}/vpipe-cache
+      VPIPE_GLFW_STRESS_FRAMES: 10000
+      VPIPE_GLFW_STRESS_RESIZE_INTERVAL: 200
+      MESA_SNAPSHOT: 20260701T120000Z
+      MESA_VULKAN_VERSION: 25.2.8-0ubuntu0.24.04.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan and SPIR-V tools
+        run: |
+          sudo apt update --snapshot "$MESA_SNAPSHOT"
+          sudo apt install --yes --allow-downgrades --snapshot "$MESA_SNAPSHOT" \
+            libglfw3-dev libvulkan-dev "mesa-vulkan-drivers=$MESA_VULKAN_VERSION" spirv-tools \
+            vulkan-tools vulkan-validationlayers xvfb
+          test "$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers)" = "$MESA_VULKAN_VERSION"
+      - uses: haskell-actions/setup@v2
+        id: setup-haskell-cabal
+        with:
+          ghc-version: 9.14.1
+          cabal-version: latest
+      - name: Update package index
+        run: cabal update
+      - name: Cache Cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc-9.14.1-${{ hashFiles('**/*.cabal', 'cabal.project', 'cabal.project.local') }}
+          restore-keys: ${{ runner.os }}-ghc-9.14.1-
+      - name: Build
+        run: cabal build all
+      - name: Run property tests with a reproducible seed
+        run: |
+          set -o pipefail
+          mkdir -p "$VPIPE_DUMP" "$XDG_CACHE_HOME"
+          # Tasty-QuickCheck prints this replay value on failure; keeping it in
+          # the log makes a failed nightly directly reproducible locally.
+          seed="$(( (${GITHUB_RUN_NUMBER:-0} % 2147483646) + 1 ))"
+          {
+            echo "quickcheck-seed=$seed"
+            echo "replay: cabal test all --test-options=--quickcheck-replay=$seed"
+          } > artifacts/quickcheck-seeds.log
+          xvfb-run --auto-servernum cabal test all --test-show-details=direct \
+            --test-options="--quickcheck-tests=1000 --quickcheck-replay=$seed" \
+            2>&1 | tee "$VPIPE_VALIDATION_LOG"
+      - name: Upload nightly diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-quickcheck-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore

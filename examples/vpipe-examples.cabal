@@ -1,0 +1,86 @@
+cabal-version: 3.12
+name: vpipe-examples
+version: 0.1.0.0
+synopsis: Executable examples for vpipe
+description:
+  Buildable programs that exercise vpipe's graphics, compute, offscreen, and
+  GLFW APIs.
+license: MIT
+license-file: LICENSE
+author: mewhhaha
+maintainer: kopatheonlyone@hotmail.com
+category: Graphics
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+extra-source-files: golden/*.png
+
+common example
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wunused-packages
+    -threaded
+  build-depends:
+    base >=4.21 && <4.23,
+    JuicyPixels >=3.3.9 && <3.4,
+    linear >=1.23.3 && <1.24,
+    vpipe >=0.1 && <0.2,
+    vpipe-glfw >=0.1 && <0.2
+  hs-source-dirs: src
+  other-modules: Vpipe.Examples.Common
+  default-language: GHC2024
+
+executable triangle
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/triangle
+
+executable cube
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/cube
+  other-modules: Vpipe.Examples.Cube
+
+executable particles
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/particles
+  other-modules: Vpipe.Examples.Particles
+  build-depends:
+    vector >=0.13 && <0.14,
+    vulkan >=3.26.6 && <3.27
+
+executable offscreen
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/offscreen
+  other-modules: Vpipe.Examples.Offscreen
+
+executable headless
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/headless
+
+executable hardcoded-triangle
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/headless
+
+executable regen-goldens
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/regen-goldens
+  other-modules:
+    Vpipe.Examples.Cube
+    Vpipe.Examples.Offscreen
+    Vpipe.Examples.Particles
+    Vpipe.Examples.Shadertoy
+  build-depends:
+    vector >=0.13 && <0.14,
+    vulkan >=3.26.6 && <3.27
+
+executable shadertoy
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/shadertoy
+  other-modules: Vpipe.Examples.Shadertoy
