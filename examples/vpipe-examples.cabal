@@ -12,7 +12,15 @@ maintainer: kopatheonlyone@hotmail.com
 category: Graphics
 build-type: Simple
 extra-doc-files: CHANGELOG.md
-extra-source-files: golden/*.png
+extra-source-files:
+  golden/*.png
+  guide/README.md
+  guide/part-1/README.md
+  guide/part-2/README.md
+  guide/part-3/README.md
+  guide/part-4/README.md
+  guide/part-5/README.md
+  shaders/README.md
 
 common example
   ghc-options:
@@ -72,8 +80,12 @@ executable regen-goldens
   hs-source-dirs: app/regen-goldens
   other-modules:
     Vpipe.Examples.Cube
+    Vpipe.Examples.FullscreenShader
+    Vpipe.Examples.Mandelbrot
     Vpipe.Examples.Offscreen
     Vpipe.Examples.Particles
+    Vpipe.Examples.Plasma
+    Vpipe.Examples.Rings
     Vpipe.Examples.Shadertoy
   build-depends:
     vector >=0.13 && <0.14,
@@ -83,4 +95,55 @@ executable shadertoy
   import: example
   main-is: Main.hs
   hs-source-dirs: app/shadertoy
-  other-modules: Vpipe.Examples.Shadertoy
+  other-modules:
+    Vpipe.Examples.FullscreenShader
+    Vpipe.Examples.Shadertoy
+
+executable mandelbrot
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/mandelbrot
+  other-modules:
+    Vpipe.Examples.FullscreenShader
+    Vpipe.Examples.Mandelbrot
+
+executable plasma
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/plasma
+  other-modules:
+    Vpipe.Examples.FullscreenShader
+    Vpipe.Examples.Plasma
+
+executable rings
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: app/rings
+  other-modules:
+    Vpipe.Examples.FullscreenShader
+    Vpipe.Examples.Rings
+
+executable guide-part-1
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: guide/part-1
+
+executable guide-part-2
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: guide/part-2
+
+executable guide-part-3
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: guide/part-3
+
+executable guide-part-4
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: guide/part-4
+
+executable guide-part-5
+  import: example
+  main-is: Main.hs
+  hs-source-dirs: guide/part-5

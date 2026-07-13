@@ -59,7 +59,9 @@ The maintained example remains below roughly 60 lines while handling a real
 GLFW window, typed vertex data, compilation, resize, and presentation.  Follow
 [Your first triangle](vpipe/docs/tutorials/first-triangle.md) for the complete
 runnable program and an explanation of the pipeline, environment, and frame
-model.
+model. Continue with the [five-part example guide](examples/guide/README.md)
+for buffers and indexing, shader expressions, textures, and multipass
+rendering, or explore the [animated shader gallery](examples/shaders/README.md).
 
 ## Development environment
 

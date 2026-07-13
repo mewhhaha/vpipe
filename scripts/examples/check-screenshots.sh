@@ -12,12 +12,15 @@ cabal run cube -- --frames 2 --screenshot "$temporary/cube.png"
 cabal run offscreen -- --frames 2 --screenshot "$temporary/offscreen.png"
 cabal run particles -- --frames 2 --screenshot "$temporary/particles.png"
 cabal run shadertoy -- --frames 2 --screenshot "$temporary/shadertoy.png"
+cabal run mandelbrot -- --frames 2 --screenshot "$temporary/mandelbrot.png"
+cabal run plasma -- --frames 2 --screenshot "$temporary/plasma.png"
+cabal run rings -- --frames 2 --screenshot "$temporary/rings.png"
 
 python3 - "$temporary" <<'PY'
 import pathlib, struct, sys, zlib
 
 root, golden = pathlib.Path(sys.argv[1]), pathlib.Path("examples/golden")
-names = ("triangle", "headless", "cube", "offscreen", "particles", "shadertoy")
+names = ("triangle", "headless", "cube", "offscreen", "particles", "shadertoy", "mandelbrot", "plasma", "rings")
 
 def rgba(path):
     data = path.read_bytes()
